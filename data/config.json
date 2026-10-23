@@ -1,0 +1,7 @@
+{
+  "door_open_threshold_minutes": 5,
+  "motion_repeat_count": 3,
+  "motion_repeat_window_minutes": 5,
+  "quiet_hours_start": 23,
+  "quiet_hours_end": 6
+}
