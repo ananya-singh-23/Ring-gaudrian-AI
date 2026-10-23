@@ -11,6 +11,10 @@ A polished, dark-mode **Streamlit security-event dashboard** built for a hackath
   <strong>☁️ No AWS required</strong>
 </p>
 
+### 🌐 Live demo
+
+Try the app: **[Ring Guardian AI on Streamlit](https://ring-gaurdian-ai.streamlit.app/)**
+
 > [!IMPORTANT]
 > **Demo status:** Local simulation is the default. This project does **not** claim a live Ring API, Ring device, or Bedrock connection. The Ring adapter is opt-in and requires an approved Ring Partner application and valid server-side credentials. The local dashboard works without those prerequisites.
 
