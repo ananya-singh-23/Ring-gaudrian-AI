@@ -9,7 +9,7 @@ The application does not connect to real Ring hardware.
 """
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 # Human-readable labels and emojis for each simulated event type.
@@ -40,10 +40,11 @@ def parse_ts(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
         return value
     text = str(value)
-    if text.endswith("Z"):
-        text = text[:-1]
     try:
-        return datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            return parsed.astimezone().replace(tzinfo=None)
+        return parsed
     except (ValueError, TypeError):
         return None
 

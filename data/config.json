@@ -1,5 +1,4 @@
 {
-<<<<<<< HEAD
   "quiet_hours": {
     "start": "01:00",
     "end": "05:00"
@@ -10,11 +9,3 @@
     "motion_burst_threshold": 2
   }
 }
-=======
-  "door_open_threshold_minutes": 5,
-  "motion_repeat_count": 3,
-  "motion_repeat_window_minutes": 5,
-  "quiet_hours_start": 23,
-  "quiet_hours_end": 6
-}
->>>>>>> 45dcc4b17f9e0523a38e5e44df2fcbd71c03ad50

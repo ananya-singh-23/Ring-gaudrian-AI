@@ -1,8 +1,8 @@
 # 🛡️ Ring Guardian AI
 
-A polished, dark-themed **smart-home security event monitoring dashboard** inspired by Ring devices. Built as a one-day hackathon project.
+A dark-themed Streamlit event-monitoring dashboard and hackathon demo. Local simulation is the default: synthetic device events flow through a canonical event store, deterministic alert rules, filters, and a grounded local assistant.
 
-> ⚠️ **All devices and events are SIMULATED.** This application does **not** connect to real Ring hardware, does **not** use real Ring credentials, and does **not** require an AWS account. The assistant is a deterministic local rules engine. Integration with the Strands Agents SDK and Amazon Bedrock is planned for a later phase.
+> **Honest status:** The local demo works without Ring hardware, Ring credentials, AWS credentials, or paid services. No real Ring account/API or Bedrock model is connected by default. The Ring adapter is opt-in scaffolding for an approved Ring Partner application; its status is not reported as verified merely because environment variables exist.
 
 ---
 
@@ -10,6 +10,7 @@ A polished, dark-themed **smart-home security event monitoring dashboard** inspi
 
 - **Modern dashboard** — dark UI with device status cards for Front Door, Doorbell, Garage Door, and Motion Sensor, plus live metrics: events today, active alerts, connected devices, and doors left open.
 - **Event simulator** — one-click buttons generate example scenarios (normal entry, door left open, motion burst, doorbell press, overnight motion, random event). All events carry a `simulated` flag.
+- **Unified event records** — synthetic events use a shared schema (`id`, `source`, device, type, timestamp, and attributes), while retaining compatibility fields used by the dashboard. Duplicate event IDs are ignored.
 - **Garage-door threshold demo** — a deterministic demo button opens the garage door past the *currently configured* threshold (so it always alerts), with a **Reset** button to clear events and repeat the demonstration.
 - **Alert engine** — deterministic, configurable rules that flag:
   - Doors open beyond a configurable threshold (default 5 minutes)
@@ -19,6 +20,8 @@ A polished, dark-themed **smart-home security event monitoring dashboard** inspi
   Every alert carries a clear, plain-language explanation and the relevant timestamps, plus structured fields (e.g. `opened_at`, `duration_min`, `count`) for display/tooling. These are heuristic rules, **not** a reliable intrusion-detection system.
 - **Event explorer** — filter by device, event type, and date range. All three filters combine (AND) through a single shared helper that is covered by tests.
 - **Assistant chat** — a local, rule-based chat that answers questions about device status, event counts, recent activity, and alerts using real in-app data. No external LLM or AWS service is contacted. The logic lives behind a small `AssistantBackend` interface so it can be swapped for a Strands Agents SDK + Amazon Bedrock backend later without changing call sites.
+- **Optional Ring Partner adapter** — server-side, opt-in client for the documented Users API (`GET /v1/users/me`) and device discovery (`GET /v1/devices`), OAuth authorization-code exchange/refresh, one-way nonce generation and required POST→PATCH account-link confirmation, partner-initiated PATCH completion, and signed webhook validation against the raw request body for documented event types. Live Ring mode remains disabled until app approval and required server-side settings are supplied. Login/account-claiming screens and a public HTTPS webhook service still require portal setup and deployment; this local dashboard is not a Ring-accessible webhook host.
+- **Optional Strands + Bedrock provider** — loaded only when deliberately selected, optional dependencies are installed, an explicit model ID and region are set, and AWS credentials are available. The local assistant remains the fallback and alert decisions always stay deterministic.
 - **Persistence** — simulated events are saved to `data/events.json` so they survive page reloads.
 - **Tests** — basic `pytest` suite for the simulator, alert engine, and assistant.
 
@@ -60,16 +63,16 @@ ring_gaudrian_AI/
 Open PowerShell and run:
 
 ```powershell
-cd C:\Users\DELL\OneDrive\Desktop\ring_gaudrian_AI
-py -m pip install -r requirements.txt
+Set-Location C:\Users\DELL\OneDrive\Desktop\ring_gaudrian_AI
+python -m pip install -r requirements.txt
 ```
 
-> If `py` is not recognized, install the Python launcher (bundled with the official python.org installer) or replace `py` with your `python` executable.
+If `python` is not on `PATH`, use the full path to your installed Python executable in place of `python`.
 
 ## Run the dashboard
 
 ```powershell
-py -m streamlit run app.py
+python -m streamlit run app.py
 ```
 
 Streamlit will print a local URL (usually <http://localhost:8501>) and open it in your browser automatically.
@@ -77,7 +80,7 @@ Streamlit will print a local URL (usually <http://localhost:8501>) and open it i
 ## Run the tests
 
 ```powershell
-py -m pytest -q
+python -m pytest -q
 ```
 
 The tests cover the simulator, alert engine, and assistant. They are pure Python and do not require Streamlit.
@@ -91,6 +94,36 @@ The tests cover the simulator, alert engine, and assistant. They are pure Python
 | Persisted events | `data/events.json` (auto-created) |
 
 Adjust the quiet-hours window and the three rule thresholds in the sidebar, then click **Save configuration**. Changes take effect immediately on the next alert evaluation.
+
+## Working now vs. external prerequisites
+
+**Works locally now:** Streamlit dashboard; seeded and simulated events; random event generation; scenario controls and reset; canonical normalization; event persistence/filtering; deterministic door-open, repeated-motion, quiet-hours, and general-burst alerts; local assistant answers; offline tests.
+
+**Requires Ring Partner access:** Developer registration and an approved/created Ring application, Ring-issued client ID/secret/HMAC key, Ring user consent and an access token, scopes and app URLs configured in the Developer Portal, plus a publicly reachable HTTPS webhook endpoint for actual deliveries. Public Appstore publication additionally requires Ring certification and approval. The adapter implements limited documented client calls and signature parsing, not the full account-linking portal workflow or deployed webhook service. Do not put credentials in chat, source control, or frontend code.
+
+**Requires AWS/Bedrock access:** AWS account/credentials with Bedrock model permissions, an available model in the selected region, and the optional Strands dependencies. Install the optional packages only when needed:
+
+```powershell
+python -m pip install -r requirements-bedrock.txt
+```
+
+Set `ASSISTANT_BACKEND=bedrock`, `BEDROCK_ENABLED=true`, `BEDROCK_MODEL_ID` and `AWS_REGION` in the process environment after confirming model availability and AWS access. Missing setup falls back to the local assistant. The exact supported model IDs and authorization depend on your AWS account/region; the project intentionally does not invent a default model.
+
+## Environment configuration and secrets
+
+`.env.example` documents configuration names only. The project does not automatically load `.env`; set environment variables in PowerShell, your deployment environment, or a secrets manager. `.env` and token/credential files are ignored by Git. Never paste Ring or AWS secrets into Kiro prompts or the dashboard.
+
+Ring settings: `RING_APP_APPROVED` (must be `true` to opt in), `RING_CLIENT_ID`, `RING_CLIENT_SECRET`, `RING_HMAC_SIGNING_KEY`, and `RING_ACCESS_TOKEN`. Approval is a deliberate operator assertion, not an API verification. The UI reports configuration status honestly and never prints values.
+
+## Repeatable hackathon demo
+
+1. Start locally with `python -m streamlit run app.py`.
+2. Show the `SIMULATED DATA · NO REAL HARDWARE` label and Ring-disabled status.
+3. Click **Reset** in Threshold demo, then **Run demo**; show the garage door alert and explanation.
+4. Click **Motion burst** and ask “Were there repeated motion events?” in the local assistant.
+5. Click **Generate Test Event** a few times, show the event explorer filters and device counts, then click **Reset** to demonstrate an empty clean state.
+
+All generated demo activity is synthetic; no Ring or Bedrock connection is implied.
 
 ## Garage-door threshold demo
 

@@ -1,0 +1,4 @@
+# Optional; install only when deliberately enabling the Bedrock provider.
+-r requirements.txt
+strands-agents
+boto3>=1.39.0

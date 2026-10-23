@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Local, deterministic chat assistant for Ring Guardian AI.
 
 The assistant answers questions about simulated device states and event
@@ -13,6 +12,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import os
 from typing import Any, Dict, List, Optional
 
 from utils import (
@@ -67,6 +67,57 @@ class LocalAssistant(AssistantBackend):
                       context.alerts, context.config)
 
 
+class BedrockAssistant(AssistantBackend):
+    """Optional Strands/Bedrock provider, loaded only when explicitly selected.
+
+    The deterministic alert engine remains the sole source of alert decisions;
+    this provider only summarizes supplied records and never evaluates rules.
+    """
+
+    def __init__(self, model_id: str, region: str):
+        if not model_id or not region:
+            raise ValueError("Bedrock requires an explicit model ID and AWS region")
+        try:
+            from importlib import import_module
+            boto3 = import_module("boto3")
+            strands = import_module("strands")
+            bedrock_models = import_module("strands.models")
+            credentials = boto3.Session(region_name=region).get_credentials()
+            if credentials is None:
+                raise RuntimeError("No AWS credentials are available")
+        except (ImportError, RuntimeError) as exc:
+            raise RuntimeError(
+                "Optional Strands/Bedrock dependencies or AWS credentials are unavailable."
+            ) from exc
+        self._model = bedrock_models.BedrockModel(model_id=model_id, region_name=region)
+        self._agent_factory = strands.Agent
+
+    def answer(self, question: str, context: AssistantContext) -> str:
+        # Only provide the records needed for grounding; no tokens or account PII.
+        facts = {
+            "events": [{key: event.get(key) for key in (
+                "id", "source", "device_id", "device_name", "event_type", "timestamp", "details"
+            )} for event in context.events[-100:]],
+            "alerts": context.alerts,
+            "devices": [{"id": d.get("id"), "name": d.get("name"), "type": d.get("type")}
+                        for d in context.devices],
+            "config": context.config or {},
+        }
+        prompt = (
+            "Answer only from this local event and deterministic-alert data. "
+            "Do not decide whether an alert should trigger, invent missing facts, "
+            "or claim Ring/AWS connectivity beyond this assistant request. "
+            f"If information is missing, say so. Data: {facts!r}\nQuestion: {question}"
+        )
+        try:
+            agent = self._agent_factory(model=self._model)
+            result = agent(prompt)
+            return str(result)
+        except Exception:
+            # Do not echo provider exceptions: they can contain request metadata.
+            return "Bedrock is temporarily unavailable; your local dashboard and alert engine are still active."
+
+
 def build_assistant() -> AssistantBackend:
     """Factory returning the active assistant backend.
 
@@ -75,7 +126,19 @@ def build_assistant() -> AssistantBackend:
     ``AssistantBackend`` and return it here (e.g. gated on an environment
     variable). No call site needs to change.
     """
-    return LocalAssistant()
+    if os.getenv("ASSISTANT_BACKEND", "local").strip().lower() != "bedrock":
+        return LocalAssistant()
+    if os.getenv("BEDROCK_ENABLED", "").strip().lower() != "true":
+        return LocalAssistant()
+    try:
+        return BedrockAssistant(
+            model_id=os.getenv("BEDROCK_MODEL_ID", ""),
+            region=os.getenv("AWS_REGION", ""),
+        )
+    except Exception:
+        # Missing credentials, invalid AWS configuration, or an unavailable
+        # optional SDK must not prevent the local dashboard from starting.
+        return LocalAssistant()
 
 
 def answer(question: str,
@@ -105,9 +168,39 @@ def _route(question: str,
     if q in ("help", "?", "what can you do", "what can you do?"):
         return _help()
 
+    if any(phrase in q for phrase in ("last five", "last 5", "summarize the last five")):
+        return _recent_events(events, limit=5)
+
+    if "why" in q and "door" in q and "alert" in q:
+        matches = [a for a in alerts if a.get("rule_id", a.get("type")) == "door_open_too_long"]
+        if not matches:
+            return "No door-open alert is currently triggered by the deterministic alert engine."
+        return "Door-open alert explanation from the deterministic rule engine:\n" + "\n".join(
+            f"• {a.get('explanation', a.get('message', 'Explanation unavailable.'))} "
+            f"(event IDs: {', '.join(map(str, a.get('event_ids', [])))})" for a in matches
+        )
+
+    if "most events" in q or "most active" in q or "top device" in q:
+        return _event_leaders(events)
+
+    if "quiet hours" in q and any(word in q for word in ("what happened", "events", "activity", "during")):
+        return _quiet_activity(events, alerts, config or {})
+
+    if "quiet" in q:
+        return _quiet_hours(config or {})
+
+    if "repeated motion" in q or ("motion" in q and "repeat" in q):
+        matches = [a for a in alerts if a.get("rule_id", a.get("type")) == "repeated_motion"]
+        if not matches:
+            return "No repeated-motion alert is currently triggered by the deterministic alert engine."
+        return "Repeated motion was detected by the deterministic rule engine:\n" + "\n".join(
+            f"• {a.get('explanation', a.get('message', 'Explanation unavailable.'))} "
+            f"(event IDs: {', '.join(map(str, a.get('event_ids', [])))})" for a in matches
+        )
+
     # Alerts-related questions.
     if "alert" in q:
-        return _describe_alerts(alerts, q)
+        return _describe_alerts(alerts)
 
     # "How many" / count questions.
     if ("how many" in q or "count" in q or "number of" in q or "total" in q):
@@ -116,7 +209,7 @@ def _route(question: str,
     # Per-device questions (check before generic event-type filters).
     device_id = _match_device(q)
     if device_id:
-        return _about_device(events, devices, alerts, device_id, q)
+        return _about_device(events, devices, device_id, q)
 
     # Status overview.
     if "status" in q or "state" in q or "devices" in q:
@@ -135,10 +228,6 @@ def _route(question: str,
         return _by_event_type(events, "door_open", "door open")
     if "door close" in q or "closed" in q:
         return _by_event_type(events, "door_close", "door close")
-
-    # Quiet hours config question.
-    if "quiet" in q:
-        return _quiet_hours(config or {})
 
     # Today.
     if "today" in q:
@@ -190,7 +279,7 @@ def _status_overview(events: List[Dict[str, Any]], devices: List[Dict[str, Any]]
 
 
 def _about_device(events: List[Dict[str, Any]], devices: List[Dict[str, Any]],
-                  alerts: List[Dict[str, Any]], device_id: str, q: str) -> str:
+                  device_id: str, q: str) -> str:
     device_name = DEVICE_ID_BY_NAME.get(device_id, device_id)
     dev_events = sorted([e for e in events if e.get("device_id") == device_id],
                         key=lambda e: e.get("timestamp", ""), reverse=True)
@@ -239,17 +328,47 @@ def _counts(events: List[Dict[str, Any]], devices: List[Dict[str, Any]],
             f"Connected devices: {len(devices)}. Alerts: {len(alerts)}.")
 
 
-def _recent_events(events: List[Dict[str, Any]]) -> str:
+def _recent_events(events: List[Dict[str, Any]], limit: int = 5) -> str:
     ordered = sorted(events, key=lambda e: e.get("timestamp", ""), reverse=True)
     if not ordered:
         return "There are no events yet. Use the simulator panel to generate some."
-    lines = [f"Showing the {min(8, len(ordered))} most recent events:"]
-    for e in ordered[:8]:
+    lines = [f"Showing the {min(limit, len(ordered))} most recent events:"]
+    for e in ordered[:limit]:
         lbl = EVENT_TYPE_META.get(e["event_type"], {}).get("label", e["event_type"])
         ts = parse_ts(e.get("timestamp"))
         when = ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "?"
         lines.append(f"• {when} — {e['device_name']} — {lbl}: {e.get('details','')}")
     return "\n".join(lines)
+
+
+def _event_leaders(events: List[Dict[str, Any]]) -> str:
+    if not events:
+        return "There are no events to compare yet."
+    counts: Dict[str, int] = {}
+    for event in events:
+        name = str(event.get("device_name") or "Unknown device")
+        counts[name] = counts.get(name, 0) + 1
+    highest = max(counts.values())
+    leaders = sorted(name for name, count in counts.items() if count == highest)
+    return f"Most events: {', '.join(leaders)} with {highest} event(s). Counts: " + ", ".join(
+        f"{name}: {count}" for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    )
+
+
+def _quiet_activity(events: List[Dict[str, Any]], alerts: List[Dict[str, Any]],
+                    config: Dict[str, Any]) -> str:
+    quiet = (config.get("quiet_hours") or {})
+    start, end = quiet.get("start", "01:00"), quiet.get("end", "05:00")
+    event_ids = {event_id for alert in alerts
+                 if alert.get("rule_id", alert.get("type")) == "quiet_hours_activity"
+                 for event_id in alert.get("event_ids", [alert.get("event_id")])}
+    matches = [event for event in events if event.get("id") in event_ids]
+    if not matches:
+        return f"No quiet-hours event records were supplied for the configured window {start}-{end}."
+    return "Quiet-hours activity:\n" + "\n".join(
+        f"• {event.get('timestamp', '?')} — {event.get('device_name', 'Unknown device')} — "
+        f"{event.get('event_type', 'unknown')}" for event in matches
+    )
 
 
 def _by_event_type(events: List[Dict[str, Any]], event_type: str, label: str) -> str:
@@ -281,7 +400,7 @@ def _today_events(events: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _describe_alerts(alerts: List[Dict[str, Any]], q: str) -> str:
+def _describe_alerts(alerts: List[Dict[str, Any]]) -> str:
     if not alerts:
         return "No active alerts right now. Everything looks normal."
     lines = [f"There are {len(alerts)} active alert(s):"]
@@ -307,258 +426,3 @@ def _quiet_hours(config: Dict[str, Any]) -> str:
 def _today_date():
     from datetime import date
     return date.today()
-=======
-"""
-assistant.py — Deterministic local chat assistant for Ring Guardian AI.
-
-IMPORTANT: This assistant runs entirely on the local machine using rule-based
-pattern matching. It is NOT connected to any external LLM, AWS Bedrock, or
-any other cloud service. All responses are derived from the application's
-own event and alert data.
-
-A future phase will integrate Strands Agents SDK + Amazon Bedrock.
-"""
-
-import re
-from datetime import datetime, timedelta, timezone
-
-from simulator import get_all_events, get_device_status, DEVICES
-from alert_engine import analyse_events, load_config
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _parse_ts(ts_str: str) -> datetime:
-    return datetime.fromisoformat(ts_str[:19])
-
-
-def _count_today(events: list[dict]) -> int:
-    """Return number of events that occurred in the last 24 hours."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
-    return sum(1 for e in events if _parse_ts(e["timestamp"]) >= cutoff)
-
-
-def _recent_events(events: list[dict], n: int = 5) -> list[dict]:
-    """Return the n most-recent events."""
-    return sorted(events, key=lambda e: e["timestamp"], reverse=True)[:n]
-
-
-def _format_ts(ts_str: str) -> str:
-    try:
-        dt = _parse_ts(ts_str)
-        return dt.strftime("%b %d %H:%M UTC")
-    except ValueError:
-        return ts_str
-
-
-def _device_name_to_id(query: str) -> str | None:
-    """Fuzzy-match a device name from a query string. Returns device_id or None."""
-    query_lower = query.lower()
-    for device in DEVICES:
-        if device["name"].lower() in query_lower or device["id"].replace("_", " ") in query_lower:
-            return device["id"]
-    # Partial matches
-    for device in DEVICES:
-        parts = device["name"].lower().split()
-        if any(part in query_lower for part in parts):
-            return device["id"]
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Response builders
-# ---------------------------------------------------------------------------
-
-def _resp_status_all(status_map: dict) -> str:
-    lines = ["**Device Status (Simulated)**\n"]
-    for did, info in status_map.items():
-        icon = {"open": "🔓", "closed": "🔒", "idle": "💤", "unknown": "❓"}.get(info["status"], "❓")
-        last = f"Last seen: {_format_ts(info['last_seen'])}" if info["last_seen"] else "No events recorded"
-        lines.append(f"{icon} **{info['name']}** — {info['status'].capitalize()}  \n  {last}")
-    return "\n\n".join(lines)
-
-
-def _resp_device_status(device_id: str, status_map: dict) -> str:
-    info = status_map.get(device_id)
-    if not info:
-        return "I couldn't find that device. Try asking about Front Door, Doorbell, Garage Door, or Motion Sensor."
-    icon = {"open": "🔓", "closed": "🔒", "idle": "💤", "unknown": "❓"}.get(info["status"], "❓")
-    last = f"Last event: **{info['last_event']}** at {_format_ts(info['last_seen'])}" if info["last_seen"] else "No events recorded yet."
-    return (
-        f"{icon} **{info['name']}** is currently **{info['status']}**.\n\n"
-        f"{last}"
-    )
-
-
-def _resp_recent_events(events: list[dict], n: int = 5) -> str:
-    recent = _recent_events(events, n)
-    if not recent:
-        return "No events have been recorded yet. Try running a scenario from the Event Simulator tab."
-    lines = [f"**{n} Most Recent Events (Simulated)**\n"]
-    for e in recent:
-        lines.append(
-            f"• `{_format_ts(e['timestamp'])}` — **{e['device_name']}** → {e['event_type'].replace('_', ' ').title()}"
-        )
-    return "\n".join(lines)
-
-
-def _resp_event_count(events: list[dict]) -> str:
-    total = len(events)
-    today = _count_today(events)
-    return (
-        f"There are **{total}** total simulated events on record.\n"
-        f"**{today}** of those occurred in the last 24 hours."
-    )
-
-
-def _resp_alerts(alerts: list[dict]) -> str:
-    if not alerts:
-        return "✅ No active alerts. Everything looks normal based on the current rules."
-    lines = [f"**{len(alerts)} Active Alert(s)**\n"]
-    emoji_map = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-    for a in alerts:
-        em = emoji_map.get(a["severity"], "⚪")
-        lines.append(f"{em} **{a['device_name']}** [{a['severity'].upper()}]\n  {a['message']}")
-    return "\n\n".join(lines)
-
-
-def _resp_device_events(device_id: str, events: list[dict], n: int = 5) -> str:
-    device_events = [e for e in events if e["device_id"] == device_id]
-    if not device_events:
-        did_info = next((d for d in DEVICES if d["id"] == device_id), None)
-        name = did_info["name"] if did_info else device_id
-        return f"No events found for **{name}**."
-    recent = sorted(device_events, key=lambda e: e["timestamp"], reverse=True)[:n]
-    did_info = next((d for d in DEVICES if d["id"] == device_id), None)
-    name = did_info["name"] if did_info else device_id
-    lines = [f"**Last {min(n, len(recent))} events for {name}**\n"]
-    for e in recent:
-        lines.append(f"• `{_format_ts(e['timestamp'])}` → {e['event_type'].replace('_', ' ').title()}")
-    return "\n".join(lines)
-
-
-def _resp_help() -> str:
-    return (
-        "**Ring Guardian AI Assistant** *(Local / Simulated)*\n\n"
-        "I can answer questions about your simulated devices and events. Try:\n\n"
-        "- *What is the status of the front door?*\n"
-        "- *Show me recent events*\n"
-        "- *Are there any alerts?*\n"
-        "- *How many events today?*\n"
-        "- *What happened at the garage door?*\n"
-        "- *Is the motion sensor active?*\n"
-        "- *Show all device statuses*\n\n"
-        "⚠️ This assistant uses local rule-based matching only — it is not connected to any AI or cloud service."
-    )
-
-
-def _resp_quiet_hours(config: dict) -> str:
-    return (
-        f"Quiet hours are configured from **{config['quiet_hours_start']:02d}:00** to "
-        f"**{config['quiet_hours_end']:02d}:00 UTC**. "
-        "Any activity during that window will trigger a quiet-hours alert."
-    )
-
-
-def _resp_unknown() -> str:
-    return (
-        "I'm not sure how to answer that with the current event data. "
-        "Try asking about device status, recent events, or active alerts. "
-        "Type **help** for a list of things I can answer."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Pattern → intent mapping
-# ---------------------------------------------------------------------------
-
-# Each entry: (compiled_regex, intent_label)
-_INTENT_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\bhelp\b|\bwhat can you\b|\bcommands\b", re.I), "help"),
-    (re.compile(r"\ball (devices?|status|sensors?)\b|\bdevice status\b|\bstatus of all\b", re.I), "all_status"),
-    (re.compile(r"\b(is|what is|check)\b.*(door|doorbell|sensor|garage|motion)\b.*(status|state|open|closed)\b", re.I), "device_status"),
-    (re.compile(r"\b(status|state|is|check)\b.*(front door|garage|doorbell|motion sensor)\b", re.I), "device_status"),
-    (re.compile(r"\b(front door|garage door|doorbell|motion sensor)\b.*(status|open|closed|active|idle)\b", re.I), "device_status"),
-    (re.compile(r"\b(latest|recent|last)\b.*(events?|activity|alerts?)\b", re.I), "recent_events"),
-    (re.compile(r"\bshow\b.*(events?|activity)\b", re.I), "recent_events"),
-    (re.compile(r"\bhow many\b.*(events?|times)\b", re.I), "event_count"),
-    (re.compile(r"\b(events? today|today.{0,10}events?)\b", re.I), "event_count"),
-    (re.compile(r"\balerts?\b|\bwarnings?\b|\bissues?\b", re.I), "alerts"),
-    (re.compile(r"\bquiet hours?\b|\bunusual hours?\b", re.I), "quiet_hours"),
-    (re.compile(r"\b(what happened|history|events?)\b.*(front door|garage|doorbell|motion sensor)\b", re.I), "device_events"),
-    (re.compile(r"\b(front door|garage door|doorbell|motion sensor)\b.*(events?|history|activity)\b", re.I), "device_events"),
-    # Bare device mentions → device status
-    (re.compile(r"\b(front door|garage door|doorbell|motion sensor)\b", re.I), "device_status"),
-]
-
-
-def _classify(query: str) -> str:
-    """Return an intent label for the user's query."""
-    for pattern, intent in _INTENT_PATTERNS:
-        if pattern.search(query):
-            return intent
-    return "unknown"
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def chat(user_message: str) -> str:
-    """
-    Process a natural-language query and return a plain-text / markdown response.
-
-    All answers are derived from live event and alert data — no external service
-    is called.
-
-    Args:
-        user_message: The user's chat input.
-
-    Returns:
-        A markdown-formatted response string.
-    """
-    query = user_message.strip()
-    if not query:
-        return "Please type a question. Type **help** to see what I can answer."
-
-    events = get_all_events()
-    status_map = get_device_status(events)
-    config = load_config()
-    alerts = analyse_events(events, config)
-
-    intent = _classify(query)
-
-    if intent == "help":
-        return _resp_help()
-
-    elif intent == "all_status":
-        return _resp_status_all(status_map)
-
-    elif intent == "device_status":
-        device_id = _device_name_to_id(query)
-        if device_id:
-            return _resp_device_status(device_id, status_map)
-        return _resp_status_all(status_map)
-
-    elif intent == "recent_events":
-        return _resp_recent_events(events)
-
-    elif intent == "event_count":
-        return _resp_event_count(events)
-
-    elif intent == "alerts":
-        return _resp_alerts(alerts)
-
-    elif intent == "quiet_hours":
-        return _resp_quiet_hours(config)
-
-    elif intent == "device_events":
-        device_id = _device_name_to_id(query)
-        if device_id:
-            return _resp_device_events(device_id, events)
-        return _resp_recent_events(events)
-
-    else:
-        return _resp_unknown()
->>>>>>> 45dcc4b17f9e0523a38e5e44df2fcbd71c03ad50

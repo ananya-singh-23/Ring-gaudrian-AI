@@ -1,1 +1,132 @@
-[]
+[
+  {
+    "id": "seed1",
+    "timestamp": "2026-10-23T15:12:29.868024",
+    "device_id": "front_door",
+    "device_name": "Front Door",
+    "event_type": "door_open",
+    "details": "Opened from inside (simulated seed)",
+    "simulated": true,
+    "source": "simulated",
+    "attributes": {
+      "details": "Opened from inside (simulated seed)"
+    }
+  },
+  {
+    "id": "seed2",
+    "timestamp": "2026-10-23T15:13:29.868024",
+    "device_id": "front_door",
+    "device_name": "Front Door",
+    "event_type": "door_close",
+    "details": "Closed normally (simulated seed)",
+    "simulated": true,
+    "source": "simulated",
+    "attributes": {
+      "details": "Closed normally (simulated seed)"
+    }
+  },
+  {
+    "id": "seed3",
+    "timestamp": "2026-10-23T15:35:29.868024",
+    "device_id": "motion_sensor",
+    "device_name": "Motion Sensor",
+    "event_type": "motion_detected",
+    "details": "Movement near the entry (simulated seed)",
+    "simulated": true,
+    "source": "simulated",
+    "attributes": {
+      "details": "Movement near the entry (simulated seed)"
+    }
+  },
+  {
+    "id": "seed4",
+    "timestamp": "2026-10-23T15:45:29.868024",
+    "device_id": "doorbell",
+    "device_name": "Doorbell",
+    "event_type": "doorbell_press",
+    "details": "Doorbell pressed (simulated seed)",
+    "simulated": true,
+    "source": "simulated",
+    "attributes": {
+      "details": "Doorbell pressed (simulated seed)"
+    }
+  },
+  {
+    "id": "ab22b266",
+    "source": "simulated",
+    "timestamp": "2026-10-23T16:57:28.915571",
+    "device_id": "front_door",
+    "device_name": "Front Door",
+    "event_type": "door_open",
+    "details": "Opened from inside",
+    "attributes": {
+      "details": "Opened from inside"
+    },
+    "simulated": true
+  },
+  {
+    "id": "30bd938e",
+    "source": "simulated",
+    "timestamp": "2026-10-23T16:58:13.915571",
+    "device_id": "front_door",
+    "device_name": "Front Door",
+    "event_type": "door_close",
+    "details": "Closed normally",
+    "attributes": {
+      "details": "Closed normally"
+    },
+    "simulated": true
+  },
+  {
+    "id": "c141a501",
+    "source": "simulated",
+    "timestamp": "2026-10-23T16:46:18.188334",
+    "device_id": "garage_door",
+    "device_name": "Garage Door",
+    "event_type": "door_open",
+    "details": "Opened \u2014 no close event received",
+    "attributes": {
+      "details": "Opened \u2014 no close event received"
+    },
+    "simulated": true
+  },
+  {
+    "id": "8bb436ea",
+    "source": "simulated",
+    "timestamp": "2026-10-23T16:58:22.798492",
+    "device_id": "doorbell",
+    "device_name": "Doorbell",
+    "event_type": "doorbell_press",
+    "details": "Doorbell pressed at the front step",
+    "attributes": {
+      "details": "Doorbell pressed at the front step"
+    },
+    "simulated": true
+  },
+  {
+    "id": "b386e8cf",
+    "source": "simulated",
+    "timestamp": "2026-10-23T16:58:31.365171",
+    "device_id": "garage_door",
+    "device_name": "Garage Door",
+    "event_type": "door_open",
+    "details": "Random simulated event",
+    "attributes": {
+      "details": "Random simulated event"
+    },
+    "simulated": true
+  },
+  {
+    "id": "22111f24",
+    "source": "simulated",
+    "timestamp": "2026-10-23T16:51:35.177340",
+    "device_id": "garage_door",
+    "device_name": "Garage Door",
+    "event_type": "door_open",
+    "details": "DEMO: garage door opened 7 min ago (configured threshold 4 min)",
+    "attributes": {
+      "details": "DEMO: garage door opened 7 min ago (configured threshold 4 min)"
+    },
+    "simulated": true
+  }
+]

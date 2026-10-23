@@ -5,9 +5,17 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.vscode
 
 # Streamlit
 .streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+*.token
+*.tokens
+*credentials*.json
+ring-token-store*
 
 # Persisted simulated events (regenerated automatically on first run)
 data/events.json

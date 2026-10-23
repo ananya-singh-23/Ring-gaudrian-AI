@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import streamlit as st
+from event_schema import normalize_event
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -28,6 +29,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "door_open_threshold_minutes": 5,
         "motion_burst_window_seconds": 60,
         "motion_burst_threshold": 3,
+        "event_burst_window_seconds": 60,
+        "event_burst_threshold": 8,
     },
 }
 
@@ -72,18 +75,18 @@ def _seed_events() -> List[Dict[str, Any]]:
     """A few realistic-looking events so the dashboard isn't empty on first run."""
     now = datetime.now()
     return [
-        {"id": "seed1", "timestamp": (now - timedelta(minutes=38)).isoformat(),
+        normalize_event({"id": "seed1", "source": "simulated", "timestamp": (now - timedelta(minutes=38)).isoformat(),
          "device_id": "front_door", "device_name": "Front Door",
-         "event_type": "door_open", "details": "Opened from inside (simulated seed)", "simulated": True},
-        {"id": "seed2", "timestamp": (now - timedelta(minutes=37)).isoformat(),
+         "event_type": "door_open", "details": "Opened from inside (simulated seed)", "simulated": True}),
+        normalize_event({"id": "seed2", "source": "simulated", "timestamp": (now - timedelta(minutes=37)).isoformat(),
          "device_id": "front_door", "device_name": "Front Door",
-         "event_type": "door_close", "details": "Closed normally (simulated seed)", "simulated": True},
-        {"id": "seed3", "timestamp": (now - timedelta(minutes=15)).isoformat(),
+         "event_type": "door_close", "details": "Closed normally (simulated seed)", "simulated": True}),
+        normalize_event({"id": "seed3", "source": "simulated", "timestamp": (now - timedelta(minutes=15)).isoformat(),
          "device_id": "motion_sensor", "device_name": "Motion Sensor",
-         "event_type": "motion_detected", "details": "Movement near the entry (simulated seed)", "simulated": True},
-        {"id": "seed4", "timestamp": (now - timedelta(minutes=5)).isoformat(),
+         "event_type": "motion_detected", "details": "Movement near the entry (simulated seed)", "simulated": True}),
+        normalize_event({"id": "seed4", "source": "simulated", "timestamp": (now - timedelta(minutes=5)).isoformat(),
          "device_id": "doorbell", "device_name": "Doorbell",
-         "event_type": "doorbell_press", "details": "Doorbell pressed (simulated seed)", "simulated": True},
+         "event_type": "doorbell_press", "details": "Doorbell pressed (simulated seed)", "simulated": True}),
     ]
 
 
@@ -98,7 +101,7 @@ def init_state() -> None:
         st.session_state.config = _merge_config(_load_json(CONFIG_FILE, DEFAULT_CONFIG), DEFAULT_CONFIG)
     if "events" not in st.session_state:
         loaded = _load_json(EVENTS_FILE, [])
-        st.session_state.events = loaded if loaded else _seed_events()
+        st.session_state.events = [normalize_event(event) for event in loaded] if loaded else _seed_events()
         if not loaded:
             _save_json(EVENTS_FILE, st.session_state.events)
     if "chat_history" not in st.session_state:
@@ -122,9 +125,10 @@ def add_events(new_events: List[Dict[str, Any]]) -> int:
     existing_ids = {e["id"] for e in st.session_state.events}
     added = 0
     for e in new_events:
-        if e.get("id") not in existing_ids:
-            st.session_state.events.append(e)
-            existing_ids.add(e["id"])
+        canonical = normalize_event(e)
+        if canonical["id"] not in existing_ids:
+            st.session_state.events.append(canonical)
+            existing_ids.add(canonical["id"])
             added += 1
     _save_json(EVENTS_FILE, st.session_state.events)
     return added
