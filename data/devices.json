@@ -1,0 +1,6 @@
+[
+  {"id": "front_door", "name": "Front Door", "type": "door", "icon": "🚪"},
+  {"id": "doorbell", "name": "Doorbell", "type": "doorbell", "icon": "🔔"},
+  {"id": "garage_door", "name": "Garage Door", "type": "door", "icon": "🚗"},
+  {"id": "motion_sensor", "name": "Motion Sensor", "type": "motion_sensor", "icon": "📡"}
+]

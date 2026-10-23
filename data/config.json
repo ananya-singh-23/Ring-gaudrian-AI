@@ -1,0 +1,11 @@
+{
+  "quiet_hours": {
+    "start": "01:00",
+    "end": "05:00"
+  },
+  "rules": {
+    "door_open_threshold_minutes": 4,
+    "motion_burst_window_seconds": 62,
+    "motion_burst_threshold": 2
+  }
+}

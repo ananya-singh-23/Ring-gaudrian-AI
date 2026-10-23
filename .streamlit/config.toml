@@ -1,0 +1,16 @@
+# Streamlit theme + server configuration for Ring Guardian AI.
+# This gives the dashboard its dark "smart-home" look.
+[theme]
+base = "dark"
+primaryColor = "#7C3AED"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1B1E27"
+textColor = "#E6E6E6"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+runOnSave = true
+headless = true
